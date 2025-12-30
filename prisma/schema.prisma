@@ -18,3 +18,23 @@ model Test {
   name String
   createdAt DateTime @default(now())
 }
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+model User {
+  id        String       @id @default(uuid())
+  clerkId  String  @unique
+  username      String?      @unique
+  email     String       @unique
+  role      UserRole     @default(USER)
+
+  firstName String?
+  lastName  String?
+  imageUrl  String?
+
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
