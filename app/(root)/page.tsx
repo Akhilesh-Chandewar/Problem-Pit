@@ -1,8 +1,8 @@
-import { onBoardUser } from "@/module/auth/action";
+// import { onBoardUser } from "@/module/auth/action";
 import { UserButton } from "@clerk/nextjs";
 
 export default async function Home() {
-  await onBoardUser();
+  // await onBoardUser();
   return (
     <div className="min-h-screen bg-linear-to-b from-blue-50 to-indigo-100 flex items-center justify-center">
       <div className="text-center">
