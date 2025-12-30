@@ -42,3 +42,35 @@ export async function onBoardUser() {
         }
     }
 }
+
+export async function getCurrentUserRole() {
+    try {
+        const user = await currentUser();
+        if (!user) {
+            throw new Error("User not authenticated");
+        }
+        const { id } = user;
+
+        const existingUser = await prisma?.user.findUnique({
+            where: { clerkId: id },
+            select: { role: true },
+        });
+
+        if (!existingUser) {
+            throw new Error("User not found in database");
+        }
+
+        return {
+            success: true,
+            role: existingUser.role,
+            message: "User role fetched successfully",
+        }
+    } catch (error) {
+        console.error("Error fetching user role:", error);
+        return {
+            success: false,
+            role: null,
+            message: "Failed to fetch user role",
+        }
+    }
+}
