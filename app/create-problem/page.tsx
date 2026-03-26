@@ -1,40 +1,30 @@
-import React from "react";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { Button } from '@/components/ui/button';
+import ModeToggle from '@/components/ui/mode-toggle';
+import CreateProblemForm from '@/modules/problems/components/create-problem-form';
+import { currentUser } from '@clerk/nextjs/server'
+import { ArrowLeft } from 'lucide-react';
+import Link from 'next/link';
+import React from 'react'
 
-import { Button } from "@/components/ui/button";
-import ModeToggle from "@/components/ui/mode-toggle";
-import CreateProblemForm from "@/module/problems/components/CreateProblemForm";
-
-function CreateProblem() {
+const CreateProblemPage = async () => {
+    const user = await currentUser();
     return (
-        <section className="min-h-screen flex flex-col">
-            {/* Header */}
-            <header className="border-b px-6 py-4">
-                <div className="grid grid-cols-[auto_1fr_auto] items-center max-w-7xl mx-auto">
-                    {/* Left */}
-                    <Link href="/">
-                        <Button variant="outline" size="icon">
-                            <ArrowLeft className="size-4" />
-                        </Button>
-                    </Link>
+        <section className='flex flex-col items-center container mx-4 my-4 min-h-screen'>
+            <div className='flex flex-row justify-between items-center w-full mb-6'>
+                <Link href={"/"}>
+                    <Button variant={"outline"} size={"icon"}>
+                        <ArrowLeft className='size-4' />
+                    </Button>
+                </Link>
 
-                    {/* Center */}
-                    <h1 className="text-center text-3xl font-bold bg-linear-to-r from-orange-400 to-orange-600 bg-clip-text text-transparent">
-                        Problem Pit
-                    </h1>
-
-                    {/* Right */}
-                    <ModeToggle />
-                </div>
-            </header>
-
-            {/* Main content */}
-            <main className="flex-1 flex items-center justify-center px-6">
-               <CreateProblemForm />
-            </main>
+                <h1 className='text-3xl font-bold text-amber-400'>Welcome {user?.firstName}! Create a Problem</h1>
+                <ModeToggle />
+            </div>
+            <div className="w-full max-w-5xl">
+                <CreateProblemForm />
+            </div>
         </section>
-    );
+    )
 }
 
-export default CreateProblem;
+export default CreateProblemPage

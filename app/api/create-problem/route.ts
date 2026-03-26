@@ -1,10 +1,10 @@
 import { UserRole } from "@/lib/generated/prisma/enums";
-import { getCurrentUserRole } from "@/module/auth/action";
+import { getCurrentUserRole, onBoardUser } from "@/module/auth/action";
 import { currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/databaseConnection";
 import type { PrismaClient } from "@/lib/generated/prisma/client";
-import { getJudge0LanguageId, submitBatch, pollBatchResults } from "@/lib/judge0";
+import { getJudge0LanguageId, submitBatch, pollBatchResults, submitSingle, getJudge0Result } from "@/lib/judge0";
 import { ProblemDifficulty } from "@/lib/generated/prisma/client";
 
 interface TestCase {
@@ -23,23 +23,109 @@ interface ProblemPayload {
     tags: string[];
     examples: any;
     constraints: string;
-    hint?: string;
-    editor?: string;
+    hints?: string;
+    editorial?: string;
     testCases: TestCase[];
-    codeSnippet: any;
-    referenceSolution: ReferenceSolutions;
+    codeSnippets: any;
+    referenceSolutions: ReferenceSolutions;
+}
+
+function mergeSolutionIntoSnippet(language: string, snippet: string | undefined, solution: string) {
+    if (!solution) return snippet || "";
+    if (!snippet) return solution;
+
+    const lang = language.toUpperCase();
+
+    if (lang === "JAVASCRIPT") {
+        const fnMatch = solution.match(/function\s+([A-Za-z0-9_]+)\s*\(/);
+        if (fnMatch) {
+            const fnName = fnMatch[1];
+            const fnPattern = new RegExp(`function\\s+${fnName}\\s*\\([^)]*\\)\\s*\\{[\\s\\S]*?\\n\\}`, "m");
+            if (fnPattern.test(snippet)) {
+                return snippet.replace(fnPattern, solution);
+            }
+        }
+        // fallback
+        return `${solution}\n\n${snippet}`;
+    }
+
+    if (lang === "PYTHON") {
+        const mainIndex = snippet.indexOf("if __name__ == \"__main__\":");
+        if (mainIndex >= 0) {
+            const runner = snippet.slice(mainIndex);
+            return `${solution}\n\n${runner}`;
+        }
+        return `${solution}\n\n${snippet}`;
+    }
+
+    if (lang === "JAVA") {
+        const methodMatch = solution.match(/public\s+int\s+([A-Za-z0-9_]+)\s*\([^)]*\)\s*\{/);
+        if (methodMatch) {
+            const methodName = methodMatch[1];
+            const methodPattern = new RegExp(`public\\s+int\\s+${methodName}\\s*\\([^)]*\\)\\s*\\{[\\s\\S]*?\\n\\}`, "m");
+            if (methodPattern.test(snippet)) {
+                return snippet.replace(methodPattern, solution.replace(/\s*\n$/, ""));
+            }
+        }
+        return `${solution}\n\n${snippet}`;
+    }
+
+    return solution;
+}
+
+async function validateJudge0Submissions(submissions: any[]) {
+    try {
+        const batchResponse = await submitBatch(submissions);
+        const tokens = (batchResponse.submissions ?? []).map((item: any) => item.token).filter(Boolean);
+        if (!tokens.length) throw new Error("No tokens returned from Judge0 batch");
+
+        const results = await pollBatchResults(tokens);
+
+        // if judge0 internal errors occur, retry with sequential per-item submissions
+        const internalError = results.some((r: any) => r.status?.id === 13);
+        if (!internalError) return results;
+
+        console.warn("Judge0 batch internal error detected, retrying sequential submissions");
+    } catch (err) {
+        console.warn("Judge0 batch path failed, retrying sequential submissions", err);
+    }
+
+    const results: any[] = [];
+    for (const submission of submissions) {
+        const single = await submitSingle(submission);
+        const itemResult = await getJudge0Result(single.token);
+        results.push(itemResult);
+    }
+    return results;
 }
 
 export async function POST(request: NextRequest) {
     try {
         console.log("[CreateProblem] Incoming request");
 
-        const userRole = await getCurrentUserRole();
-        const user = await currentUser();
-
-        if (!user || userRole.role !== UserRole.ADMIN) {
+        const clerkUser = await currentUser();
+        if (!clerkUser) {
             console.warn("[CreateProblem] Unauthorized access attempt");
             return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+        }
+
+        // Ensure user exists in database before checking role
+        await onBoardUser();
+        const userRole = await getCurrentUserRole();
+
+        if (userRole.role !== UserRole.ADMIN) {
+            console.warn("[CreateProblem] Unauthorized access attempt");
+            return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+        }
+
+        // Get the database user ID
+        const dbUser = await (prisma as unknown as PrismaClient).user.findUnique({
+            where: { clerkId: clerkUser.id },
+            select: { id: true },
+        });
+
+        if (!dbUser) {
+            return NextResponse.json({ error: "User not found in database" }, { status: 400 });
         }
 
         const body: ProblemPayload = await request.json();
@@ -50,16 +136,16 @@ export async function POST(request: NextRequest) {
             tags,
             examples,
             constraints,
-            hint,
-            editor,
+            hints,
+            editorial,
             testCases,
-            codeSnippet,
-            referenceSolution,
+            codeSnippets,
+            referenceSolutions,
         } = body;
 
         console.log("[CreateProblem] Validating required fields");
 
-        if (!title || !description || !difficulty || !testCases?.length || !codeSnippet || !referenceSolution) {
+        if (!title || !description || !difficulty || !testCases?.length || !codeSnippets || !referenceSolutions) {
             console.warn("[CreateProblem] Missing required fields");
             return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
         }
@@ -68,12 +154,12 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "At least one test case is required" }, { status: 400 });
         }
 
-        if (!referenceSolution || typeof referenceSolution !== "object") {
+        if (!referenceSolutions || typeof referenceSolutions !== "object") {
             return NextResponse.json({ error: "Reference solution must be provided for all languages" }, { status: 400 });
         }
 
-        // ✅ Validate reference solutions via Judge0
-        for (const [language, solutionCode] of Object.entries(referenceSolution)) {
+
+        for (const [language, solutionCode] of Object.entries(referenceSolutions)) {
             console.log(`[CreateProblem] Validating ${language} solution`);
 
             const languageId = getJudge0LanguageId(language);
@@ -81,8 +167,10 @@ export async function POST(request: NextRequest) {
                 return NextResponse.json({ error: `Unsupported language: ${language}` }, { status: 400 });
             }
 
+            const runnableSource = mergeSolutionIntoSnippet(language, codeSnippets?.[language], solutionCode);
+
             const submissions = testCases.map(({ input, output }) => ({
-                source_code: solutionCode,
+                source_code: runnableSource,
                 language_id: languageId,
                 stdin: input,
                 expected_output: output,
@@ -90,9 +178,7 @@ export async function POST(request: NextRequest) {
 
             console.log(`[CreateProblem] Submitting ${submissions.length} test cases to Judge0 for ${language}`);
 
-            const submissionResults = await submitBatch(submissions);
-            const tokens = submissionResults.map((res: any) => res.token);
-            const results = await pollBatchResults(tokens);
+            const results = await validateJudge0Submissions(submissions);
 
             results.forEach((result: any, i: number) => {
                 if (result.status.id !== 3) {
@@ -120,12 +206,12 @@ export async function POST(request: NextRequest) {
                 tags,
                 examples: JSON.stringify(examples),         // <-- stringify
                 constraints,
-                hint: hint || null,
-                editor: editor || null,
+                hint: hints || null,
+                editor: editorial || null,
                 testCases: JSON.stringify(testCases),       // <-- stringify
-                codeSnippet,
-                referenceSolution: JSON.stringify(referenceSolution), // <-- stringify
-                userId: user.id,
+                codeSnippet: JSON.stringify(codeSnippets),
+                referenceSolution: JSON.stringify(referenceSolutions), // <-- stringify
+                userId: dbUser.id,
             },
         });
 

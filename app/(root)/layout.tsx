@@ -1,4 +1,4 @@
-import { getCurrentUserRole } from "@/module/auth/action";
+import { getCurrentUserRole, onBoardUser } from "@/module/auth/action";
 import Navbar from "@/module/home/components/Navbar";
 import { currentUser } from "@clerk/nextjs/server";
 
@@ -12,6 +12,9 @@ async function RootLayout({ children }: RootLayoutProps) {
 
   if (user) {
     try {
+      // First, ensure the user exists in the database
+      await onBoardUser();
+      // Then fetch their role
       userRole = await getCurrentUserRole();
     } catch (error) {
       console.error("Error fetching user role:", error);

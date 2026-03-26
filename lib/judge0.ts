@@ -23,10 +23,26 @@ export function getLanguageName(languageId: number): string {
 }
 
 
+function getJudge0Headers() {
+    if (!process.env.JUDGE0_API_KEY) return {};
+
+    // If a local Judge0 instance is configured, do not send RapidAPI-specific headers.
+    if (process.env.JUDGE0_API_URL?.includes("localhost") || process.env.JUDGE0_API_URL?.includes("127.0.0.1")) {
+        return {};
+    }
+
+    return {
+        'X-RapidAPI-Key': process.env.JUDGE0_API_KEY,
+        'X-RapidAPI-Host': 'judge0-ce.p.rapidapi.com',
+    };
+}
+
 export async function getJudge0Result(token: string) {
     let result;
     while (true) {
-        const response = await axios.get(`${process.env.JUDGE0_API_URL}/submissions/${token}`);
+        const response = await axios.get(`${process.env.JUDGE0_API_URL}/submissions/${token}`, {
+            headers: getJudge0Headers(),
+        });
         result = response.data;
         if (result.status.id !== 1 && result.status.id !== 2) break;
         await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -50,7 +66,13 @@ export function chunkArray(arr: any[], size: number = 20) {
 export async function submitBatch(submissions: any[]) {
     const { data } = await axios.post(
         `${process.env.JUDGE0_API_URL}/submissions/batch?base64_encoded=false`,
-        { submissions }
+        { submissions },
+        {
+            headers: {
+                ...getJudge0Headers(),
+                'Content-Type': 'application/json',
+            },
+        }
     );
     console.log('Batch submission response:', data);
     return data;
@@ -66,6 +88,7 @@ export async function pollBatchResults(tokens: string[]) {
                     tokens: tokens.join(","),
                     base64_encoded: false,
                 },
+                headers: getJudge0Headers(),
             }
         );
 
@@ -79,4 +102,20 @@ export async function pollBatchResults(tokens: string[]) {
 
         await sleep(1000);
     }
+}
+
+// Submit one submission to Judge0 (fallback path)
+export async function submitSingle(submission: any) {
+    const { data } = await axios.post(
+        `${process.env.JUDGE0_API_URL}/submissions?base64_encoded=false&wait=false`,
+        submission,
+        {
+            headers: {
+                ...getJudge0Headers(),
+                'Content-Type': 'application/json',
+            },
+        }
+    );
+    console.log('Single submission response:', data);
+    return data;
 }
