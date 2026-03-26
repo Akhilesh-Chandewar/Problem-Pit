@@ -5,18 +5,11 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client"
-  output   = "../lib/generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
-}
-
-model Test {
-  id Int @id
-  name String
-  createdAt DateTime @default(now())
 }
 
 enum UserRole {
@@ -30,6 +23,7 @@ enum ProblemDifficulty {
   HARD
 }
 
+
 model User {
   id        String       @id @default(uuid())
   clerkId  String  @unique
@@ -41,33 +35,130 @@ model User {
   lastName  String?
   imageUrl  String?
 
-  problems  Problem[]
-
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
+
+   problems    Problem[]          
+  submissions Submission[]       
+  solvedProblems ProblemSolved[]
+  playlists   Playlist[]         
+
 
   @@index([role])
 }
 
 model Problem {
-  id        String       @id @default(uuid()) 
-  title     String
+  id          String       @id @default(uuid())
+  title       String
   description String
-  difficulty  ProblemDifficulty
-  tags      String[]
-
-  userId String
-  examples Json
+  difficulty  ProblemDifficulty   // EASY, MEDIUM, HARD
+  tags        String[]
+  userId      String       // Creator of the problem
+  examples    Json         // Language-specific examples
   constraints String
-  hint String?
-  editor String?
+  hint        String?
+  editor      String?
 
-  testCases Json
-  codeSnippet String?
-  referenceSolution Json
+  testCases          Json 
+  codeSnippet        Json
+  referenceSolution  Json 
 
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  submissions Submission[] 
+  solvedBy    ProblemSolved[] 
+  problemsPlaylists   ProblemInPlaylist[]   
+
+  @@index([difficulty])
+}
+
+model Submission {
+  id           String   @id @default(uuid())
+  userId       String   
+  problemId    String   
+  sourceCode   Json   
+  language     String   
+  stdin        String?  
+  stdout       String?  
+  stderr       String?  
+  compileOutput String? 
+  status       String   
+  memory       String?  
+  time         String?  
+  createdAt    DateTime @default(now())
+
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  testCases TestCaseResult[]
+
+  @@index([status])
+}
+
+model TestCaseResult {
+  id           String     @id @default(uuid())
+  submissionId String
+  testCase     Int
+  passed       Boolean
+  stdout       String?
+  expected     String
+  stderr       String?
+  compileOutput String?
+  status       String
+  memory       String?
+  time         String?
+
+  createdAt    DateTime   @default(now())
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+}
+
+
+model ProblemSolved {
+  id        String   @id @default(uuid())
+  userId    String  
+  problemId String   
+  createdAt DateTime @default(now())
+  
+ 
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+
+
+
+  @@unique([userId, problemId]) 
+}
+
+
+model Playlist {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  userId      String   
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  problems ProblemInPlaylist[] 
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([name, userId]) 
+}
+
+model ProblemInPlaylist {
+  id         String   @id @default(uuid())
+  playlistId String
+  problemId  String
+  createdAt  DateTime @default(now())
+
+  playlist Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  problem  Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@unique([playlistId, problemId]) 
 }

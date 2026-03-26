@@ -559,10 +559,14 @@ const CreateProblemForm = () => {
         try {
             setIsLoading(true);
             console.log("Form values:", values);
+            const payload = {
+                ...values,
+                tags: values.tags.map((tag: { name: string }) => tag.name),
+            };
             const response = await fetch("/api/create-problem", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(values),
+                body: JSON.stringify(payload),
             });
             const data = await response.json();
             console.log("API response:", data);
